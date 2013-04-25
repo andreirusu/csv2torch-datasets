@@ -1,3 +1,4 @@
+#!/usr/bin/env torch
 require 'torch'
 require 'torch-env'
 require 'dataset'
