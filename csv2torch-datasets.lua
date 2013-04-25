@@ -18,41 +18,62 @@ local function parse_arg(arg, initNLparams)
     cmd:text('Options:')
     cmd:option('-csv',      '',     'input csv to convert')
     cmd:option('-out',      '',     'output torch-dataset filename')
+    cmd:option('-N',        20000,  'size of block to read at once')
+
     return cmd:parse(arg)
 end
 
 
 local function get_csv(options)
     local csv = Csv(options.csv, "r")
-    local alllines = csv:readall()
-    csv:close()
-    return alllines
+    return csv
 end
 
-local function save(csv, options)
-    torch.save(options.out, csv)
+local function save(data, options)
+    torch.save(options.out, data)
 end
 
--- function expects a table with lines made of strings
-local function csv2tensor(csv)
-    local data = torch.Tensor(#csv - 1 ,#csv[1])
-    for i = 2,#csv do
-        for j = 1,#csv[1] do
-            data[i-1][j] = tonumber(csv[i][j])
+local function get_N_samples(csv, options)
+    local data = torch.Tensor(options.N, options.nfeatures)
+    local i = 1
+    local line 
+    while i <= options.N do
+        line = csv:read()
+        if not line then break end
+        for j = 1,options.nfeatures do
+            data[i][j] = tonumber(line[j])
         end
+        i = i + 1
     end
+    i = i-1
+    data = data:narrow(1, 1, i)
+    assert(not line, 'Skipped all but the first '..options.N..' samples! Increase buffer size to fit all your data, using the -N command line option.')
     return data
 end
 
-local function get_dataset(csv, options)
-    local tsor = csv2tensor(csv)
-    if csv[1][1] == 'label' then 
-        local data = tsor:narrow(2, 2, tsor:size(2)-1)
-        local class = tsor:narrow(2, 1, 1)
-        return dataset.TableDataset({data=data, class=class})
-    else
-        return dataset.TableDataset({data=tsor})
+
+local function get_dataset(csv, options) 
+
+    -- get header
+    local header = csv:read()
+    options.nfeatures = #header
+   
+    local data = get_N_samples(csv, options)
+    local class
+    
+    -- separate labels from data
+    if header[1] == 'label' then 
+        class = data:narrow(2, 1, 1)
+        data = data:narrow(2, 2, data:size(2)-1)
     end
+
+    data = data:clone()
+    
+    if class then 
+        class = class:clone()
+    end
+
+    return dataset.TableDataset({data=data, class=class})
 end
 
 
